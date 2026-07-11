@@ -46,7 +46,7 @@ export default function Sidebar({ route, setRoute }) {
       <aside className={`sidebar ${open ? 'open' : ''}`}>
         <div className="brand">
           {/* Logo do selo: substituir pelo upload em /assets/logo-aeternum.png */}
-          <div className="brand-logo"><span>Æ</span></div>
+          <div className="brand-logo"><img src={`${import.meta.env.BASE_URL}assets/logo-aeternum.png`} alt="ÆTERNUM LABS" /></div>
           <div className="brand-name">ÆTERNUM<small>PEPTIDES · CRM</small></div>
         </div>
         <nav className="nav">

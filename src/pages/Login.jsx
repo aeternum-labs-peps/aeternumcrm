@@ -44,7 +44,7 @@ export default function Login() {
       <div className="login-wrap">
         {videoBg}
         <div className="card login-card">
-          <div className="login-logo"><span>Æ</span></div>
+          <div className="login-logo"><img src={`${import.meta.env.BASE_URL}assets/logo-aeternum.png`} alt="ÆTERNUM LABS" /></div>
           <h1 className="login-title">ÆTERNUM</h1>
           <div className="login-sub">Peptides · CRM</div>
           <label className="fld" htmlFor="codigo" style={{ textAlign: 'left' }}>Código de acesso do time</label>
@@ -65,7 +65,7 @@ export default function Login() {
       {videoBg}
       <div className="card login-card">
         {/* Logo do selo: substituir pelo upload em /assets/logo-aeternum.png */}
-        <div className="login-logo"><span>Æ</span></div>
+        <div className="login-logo"><img src={`${import.meta.env.BASE_URL}assets/logo-aeternum.png`} alt="ÆTERNUM LABS" /></div>
         <h1 className="login-title">ÆTERNUM</h1>
         <div className="login-sub">Peptides · CRM</div>
 
