@@ -1,0 +1,6 @@
+node_modules
+dist
+src/zapi.config.js
+.supabase-db-pass.txt
+.webhook-secret.txt
+.DS_Store
