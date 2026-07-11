@@ -5,9 +5,11 @@
   --navy-900: #0E1A2F;
   --navy-800: #16233C;
   --navy-700: #1E2E4D;
-  --rose-gold: #C6997A;
-  --rose-gold-light: #D9B79C;
-  --rose-gold-deep: #A9765A;
+  /* Dourado brilhante (era rosé gold — tokens mantêm o nome antigo
+     para não tocar no resto do CSS) */
+  --rose-gold: #E4B94E;
+  --rose-gold-light: #F6DF8E;
+  --rose-gold-deep: #B58A24;
   --gold: #D4AF37;
   --platinum: #C3C8D0;
   --text-100: #F3EEE7;
@@ -282,12 +284,22 @@ label.fld { display: block; font-size: 11.5px; font-weight: 700; letter-spacing:
 /* ---------- login ---------- */
 .login-wrap {
   min-height: 100vh; display: grid; place-items: center; padding: 24px;
-  background:
-    radial-gradient(1000px 500px at 80% -10%, rgba(198,153,122,0.13), transparent 60%),
-    radial-gradient(800px 500px at 10% 110%, rgba(212,175,55,0.08), transparent 55%),
-    radial-gradient(rgba(195,200,208,0.05) 1px, transparent 1px);
   background-color: var(--navy-900);
-  background-size: auto, auto, 22px 22px;
+  position: relative; overflow: hidden;
+}
+.login-video {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; z-index: 0;
+}
+.login-overlay {
+  /* escurece o vídeo para o card continuar legível */
+  position: absolute; inset: 0; z-index: 1;
+  background: radial-gradient(ellipse at center, rgba(14,26,47,0.35), rgba(14,26,47,0.78));
+}
+.login-wrap .login-card {
+  position: relative; z-index: 2;
+  background: linear-gradient(160deg, rgba(22,35,60,0.92), rgba(19,31,54,0.94));
+  backdrop-filter: blur(8px);
 }
 .login-card { width: 100%; max-width: 430px; text-align: center; padding: 40px 34px; }
 .login-logo {

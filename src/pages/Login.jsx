@@ -12,6 +12,14 @@ export default function Login() {
 
   const login = user => dispatch({ type: 'LOGIN', user })
 
+  const videoBg = (
+    <>
+      <video className="login-video" autoPlay muted loop playsInline
+        src={`${import.meta.env.BASE_URL}assets/login-bg.mp4`} />
+      <div className="login-overlay" />
+    </>
+  )
+
   // Valida o código de acesso no servidor antes de liberar o CRM
   const unlock = async () => {
     if (!code.trim()) return
@@ -34,6 +42,7 @@ export default function Login() {
   if (!unlocked) {
     return (
       <div className="login-wrap">
+        {videoBg}
         <div className="card login-card">
           <div className="login-logo"><span>Æ</span></div>
           <h1 className="login-title">ÆTERNUM</h1>
@@ -53,6 +62,7 @@ export default function Login() {
 
   return (
     <div className="login-wrap">
+      {videoBg}
       <div className="card login-card">
         {/* Logo do selo: substituir pelo upload em /assets/logo-aeternum.png */}
         <div className="login-logo"><span>Æ</span></div>
