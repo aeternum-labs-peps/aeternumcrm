@@ -11,6 +11,18 @@ export const getCrmKey = () => localStorage.getItem('aeternum-crm-key') || ''
 export const setCrmKey = k => localStorage.setItem('aeternum-crm-key', k)
 export const clearCrmKey = () => localStorage.removeItem('aeternum-crm-key')
 
+// Valida a senha no servidor e retorna qual painel ela abre
+export async function crmLogin(password) {
+  const r = await fetch(PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-crm-key': password },
+    body: JSON.stringify({ action: 'login' }),
+  })
+  if (r.status === 403) throw new Error('senha incorreta')
+  if (!r.ok) throw new Error(`servidor ${r.status}`)
+  return r.json() // { role, name, affiliateId }
+}
+
 async function call(action, params = {}) {
   const r = await fetch(PROXY, {
     method: 'POST',

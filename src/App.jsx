@@ -30,7 +30,8 @@ export default function App() {
   // Supabase; aqui o CRM busca as novas a cada 15 segundos e as joga
   // no funil (etiquetagem automática acontece no IMPORT_CHAT).
   useEffect(() => {
-    if (!user) return
+    // Afiliado não puxa mensagens do servidor (privacidade dos leads dos outros)
+    if (!user || user.papel === 'afiliado') return
     let stop = false
     const tick = async () => {
       try {
