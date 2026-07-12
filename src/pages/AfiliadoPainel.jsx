@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts'
-import { useStore, STAGES, affiliateMetrics, leadsOf } from '../store.jsx'
+import { useStore, STAGES, affiliateMetrics, leadsOf, salesOf } from '../store.jsx'
 import { KPI, FunnelBars, Chip, StageChip, Empty } from '../components/ui.jsx'
 import { money, n, pct, maskPhone, fmtPhone, fmtDate, monthKey, MONTH_NAMES } from '../lib/format.js'
 
@@ -21,7 +21,7 @@ export default function AfiliadoPainel({ afiliadoId, isPortal, onBack }) {
     for (let i = 5; i >= 0; i--) {
       const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i)
       const key = monthKey(d.getTime())
-      const sales = state.sales.filter(s => s.afiliadoId === afiliadoId && monthKey(s.data) === key)
+      const sales = salesOf(state, afiliadoId).filter(s => monthKey(s.data) === key)
       out.push({
         mes: MONTH_NAMES[d.getMonth()].slice(0, 3),
         vendas: sales.reduce((a, b) => a + b.valor, 0),

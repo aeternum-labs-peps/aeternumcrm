@@ -3,46 +3,15 @@ import { useStore, toast } from '../store.jsx'
 import { Chip, Modal } from '../components/ui.jsx'
 import { parseIntroMessage } from '../lib/parser.js'
 
-// Mensagens de exemplo da Seção 5.1 — demonstram a auto-etiquetagem
-const DEMO_MESSAGES = [
-  { nome: 'Cliente Novo 1', fone: '5511911112201', texto: 'Olá tudo bem? Eu venho pelo Instagram do Lucas Gomes e quero comprar a Reta' },
-  { nome: 'Cliente Novo 2', fone: '5521922223302', texto: 'Olá tudo bem? Eu venho pelo Instagram da Thaís e quero comprar a Reta' },
-  { nome: 'Cliente Novo 3', fone: '5531933334403', texto: 'Olá tudo bem? Eu venho pelo Carol e quero comprar a Reta' },
-  { nome: 'Cliente Novo 4', fone: '5541944445504', texto: 'Olá tudo bem? Eu venho pelo Instagram do Levy e quero comprar a Reta' },
-  { nome: 'Cliente Novo 5', fone: '5551955556605', texto: 'Oi! Eu venho pela Bianca Duarte e quero comprar o BPC-157' },
-]
-
 export default function Config() {
   const { state, dispatch } = useStore()
   const [testMsg, setTestMsg] = useState('')
   const [testResult, setTestResult] = useState(null)
   const [newProduct, setNewProduct] = useState('')
   const [member, setMember] = useState(null)
-  const [customPhoneSeq, setCustomPhoneSeq] = useState(90)
 
   const testParser = () => {
     setTestResult({ parsed: parseIntroMessage(testMsg, state.products), texto: testMsg })
-  }
-
-  const simulate = (msg) => {
-    dispatch({ type: 'RECEIVE_WHATSAPP', texto: msg.texto, telefone: msg.fone, nome: msg.nome })
-    const parsed = parseIntroMessage(msg.texto, state.products)
-    if (parsed) {
-      const exists = state.affiliates.some(a => a.nome.toLowerCase() === parsed.afiliadoNome.toLowerCase())
-      toast(dispatch,
-        exists
-          ? `📥 Lead etiquetado: ⭐ ${parsed.afiliadoNome} · ${parsed.produto}`
-          : `📥 Novo afiliado "${parsed.afiliadoNome}" criado automaticamente + lead etiquetado!`,
-        'win')
-    } else {
-      toast(dispatch, '📥 Lead recebido sem padrão de afiliado — enviado para triagem manual', 'warn')
-    }
-  }
-
-  const simulateCustom = () => {
-    if (!testMsg.trim()) return
-    simulate({ nome: `Cliente Teste ${customPhoneSeq}`, fone: `55119888877${customPhoneSeq}`, texto: testMsg })
-    setCustomPhoneSeq(s => s + 1)
   }
 
   const addProduct = () => {
@@ -67,26 +36,15 @@ export default function Config() {
 
       <div className="grid-2">
         <div>
-          <div className="card" style={{ marginBottom: 16 }}>
-            <h2 className="section-title">⚡ Simular chegada de mensagem (demo)</h2>
-            <p style={{ color: 'var(--text-300)', fontSize: 12.5, marginBottom: 12 }}>
-              Dispara o mesmo fluxo do webhook real: parse → etiqueta → lead na Etapa 1 do Kanban.
-            </p>
-            {DEMO_MESSAGES.map((m, i) => (
-              <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 9 }}>
-                <div style={{ flex: 1, fontSize: 12, color: 'var(--text-300)', fontStyle: 'italic', minWidth: 0 }}>"{m.texto}"</div>
-                <button className="btn btn-ghost btn-sm" onClick={() => simulate(m)} style={{ flexShrink: 0 }}>Receber ➤</button>
-              </div>
-            ))}
-          </div>
-
           <div className="card">
-            <h2 className="section-title">🧪 Testar o parser de etiquetagem</h2>
+            <h2 className="section-title">🧪 Testar a etiquetagem automática</h2>
+            <p style={{ color: 'var(--text-300)', fontSize: 12.5, marginBottom: 12 }}>
+              Cole uma mensagem para ver qual afiliado e produto o sistema reconhece (só teste, não cria lead).
+            </p>
             <textarea className="input" rows={3} placeholder='Ex.: "Olá! Venho pela Maria Souza e quero comprar o TB-500"'
               value={testMsg} onChange={e => setTestMsg(e.target.value)} />
             <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
               <button className="btn btn-primary btn-sm" onClick={testParser} disabled={!testMsg.trim()}>Analisar</button>
-              <button className="btn btn-ghost btn-sm" onClick={simulateCustom} disabled={!testMsg.trim()}>Analisar + criar lead</button>
             </div>
             {testResult && (
               <div style={{ marginTop: 14, padding: 13, background: 'var(--navy-900)', borderRadius: 12, border: 'var(--card-border)' }}>
@@ -138,17 +96,6 @@ export default function Config() {
             ))}
           </div>
 
-          <div className="card">
-            <h2 className="section-title">Demo</h2>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <button className="btn btn-danger btn-sm" onClick={() => { dispatch({ type: 'CLEAR_DEMO_LEADS' }); toast(dispatch, 'Leads fictícios apagados — só os reais ficaram ✓') }}>
-                Apagar leads fictícios (ficar só com os reais)
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => { dispatch({ type: 'RESET_DEMO' }); toast(dispatch, 'Dados demo restaurados ✓') }}>
-                Restaurar dados de demonstração
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 

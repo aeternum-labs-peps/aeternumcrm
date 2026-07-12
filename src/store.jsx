@@ -1,16 +1,15 @@
-import React, { createContext, useContext, useReducer, useEffect } from 'react'
-import { buildDemoState } from './data/demo.js'
-import { parseIntroMessage, slugify, norm } from './lib/parser.js'
+import React, { createContext, useContext, useReducer, useEffect, useRef } from 'react'
+import { slugify } from './lib/parser.js'
+import {
+  getCrm, saveLead, saveAffiliate, saveConfig,
+  rowToLead, leadToRow, rowToAff, affToRow,
+} from './lib/zapi.js'
 
 // ============================================================
-// STORE (modo DEMO — em produção, substituir por Supabase:
-// cada action vira um insert/update com RLS por papel/afiliado,
-// e o recebimento de mensagens chega via webhook n8n/Evolution)
+// STORE — sincronizado com o banco central (Supabase via porteiro).
+// Toda mutação atualiza a tela na hora (otimista) e é empurrada
+// para o banco; um poll traz de volta o que os outros mudaram.
 // ============================================================
-
-// v2: CRM zerado para produção (11/07/2026) — trocar a versão força
-// todos os navegadores a recomeçarem com o estado limpo
-const STORAGE_KEY = 'aeternum-crm-v2'
 
 const StoreCtx = createContext(null)
 
@@ -23,219 +22,150 @@ export const STAGES = [
   { id: 6, nome: 'Fechamento' },
 ]
 
+const DEFAULT_PRODUCTS = ['Retatrutide', 'SLU-PP-332', 'MOTS-C', 'Selank', 'GH Somatropina', 'SS-31', 'GHK-Cu', 'BPC-157', 'TB-500']
+
 let idSeq = 1000
-const nextId = p => `${p}-${++idSeq}-${Math.random().toString(36).slice(2, 6)}`
+const nextId = p => `${p}-${Date.now()}-${++idSeq}-${Math.random().toString(36).slice(2, 5)}`
+const digits = s => String(s || '').replace(/\D/g, '')
+
+function emptyState() {
+  return {
+    user: null,
+    affiliates: [], leads: [], messages: [],
+    products: DEFAULT_PRODUCTS, team: [], closings: {},
+    whatsapp: { status: 'desconectado', importado: true },
+    toasts: [], _push: [], loaded: false,
+  }
+}
+
+const configOf = s => ({ closings: s.closings, products: s.products, team: s.team })
 
 function reducer(state, action) {
   switch (action.type) {
     case 'LOGIN':
       return { ...state, user: action.user }
     case 'LOGOUT':
-      return { ...state, user: null }
+      return { ...emptyState() }
+
+    case 'SYNC_CRM': {
+      // Banco central é a fonte da verdade. Não sobrescreve enquanto
+      // houver mudanças locais ainda não empurradas (evita "voltar" card).
+      if (state._push.length) return state
+      const { affiliates, leads, config } = action.data
+      return {
+        ...state,
+        affiliates: affiliates.map(rowToAff),
+        leads: leads.map(rowToLead),
+        products: (config?.products?.length ? config.products : state.products),
+        team: config?.team || state.team,
+        closings: config?.closings || {},
+        loaded: true,
+      }
+    }
+
+    case 'MERGE_MESSAGES': {
+      const known = new Set(state.messages.map(m => m.id))
+      const fresh = action.messages.filter(m => !known.has(m.id))
+      if (!fresh.length) return state
+      // marca lead como "respondeu" quando chega mensagem recebida
+      const incomingPhones = new Set(fresh.filter(m => m.direcao === 'recebida').map(m => digits(m.phone)))
+      const leads = incomingPhones.size
+        ? state.leads.map(l => incomingPhones.has(digits(l.telefone)) ? { ...l, respondeu: true } : l)
+        : state.leads
+      return { ...state, messages: [...state.messages, ...fresh], leads }
+    }
 
     case 'MOVE_LEAD': {
       const { leadId, etapa, valorVenda, motivoPerda } = action
+      let moved = null
       const leads = state.leads.map(l => {
         if (l.id !== leadId) return l
-        return {
-          ...l,
-          etapa,
-          etapaDesde: Date.now(),
-          ultimaAtualizacao: Date.now(),
-          valorVenda: etapa === 'ganho' ? valorVenda : l.valorVenda,
+        moved = {
+          ...l, etapa, etapaDesde: Date.now(), ultimaAtualizacao: Date.now(),
+          valorVenda: etapa === 'ganho' ? valorVenda : null,
           motivoPerda: etapa === 'perdido' ? motivoPerda : null,
           respondeu: false,
         }
+        return moved
       })
-      let sales = state.sales
-      const lead = state.leads.find(l => l.id === leadId)
-      if (etapa === 'ganho' && valorVenda && lead) {
-        const af = state.affiliates.find(a => a.id === lead.afiliadoId)
-        const pctCom = af ? af.percentualComissao : 15
-        sales = [
-          ...sales.filter(s => s.leadId !== leadId),
-          {
-            id: nextId('vd'), leadId, afiliadoId: lead.afiliadoId,
-            valor: valorVenda, produto: lead.produtoInteresse,
-            data: Date.now(), comissaoCalculada: +(valorVenda * pctCom / 100).toFixed(2),
-          },
-        ]
-      }
-      if (etapa !== 'ganho') sales = sales.filter(s => s.leadId !== leadId)
-      return { ...state, leads, sales }
+      return { ...state, leads, _push: moved ? [...state._push, { kind: 'lead', payload: leadToRow(moved) }] : state._push }
     }
 
-    case 'ASSIGN_LEAD':
-      return {
-        ...state,
-        leads: state.leads.map(l => l.id === action.leadId ? { ...l, responsavelId: action.responsavelId, ultimaAtualizacao: Date.now() } : l),
-      }
+    case 'ASSIGN_LEAD': {
+      let changed = null
+      const leads = state.leads.map(l => {
+        if (l.id !== action.leadId) return l
+        changed = { ...l, responsavelId: action.responsavelId, ultimaAtualizacao: Date.now() }
+        return changed
+      })
+      return { ...state, leads, _push: changed ? [...state._push, { kind: 'lead', payload: leadToRow(changed) }] : state._push }
+    }
 
     case 'SEND_MESSAGE': {
-      // Em produção: POST para a Evolution API enviar pelo WhatsApp
+      const lead = state.leads.find(l => l.id === action.leadId)
       const msg = {
-        id: nextId('msg'), leadId: action.leadId, direcao: 'enviada',
+        id: nextId('msg'), phone: lead ? lead.telefone : '', direcao: 'enviada',
         texto: action.texto, timestamp: Date.now(), remetente: state.user?.nome || 'ÆTERNUM',
       }
+      let changed = null
+      const leads = state.leads.map(l => {
+        if (l.id !== action.leadId) return l
+        changed = { ...l, ultimaAtualizacao: Date.now(), respondeu: false }
+        return changed
+      })
       return {
-        ...state,
-        messages: [...state.messages, msg],
-        leads: state.leads.map(l => l.id === action.leadId ? { ...l, ultimaAtualizacao: Date.now(), respondeu: false } : l),
+        ...state, messages: [...state.messages, msg], leads,
+        _push: changed ? [...state._push, { kind: 'lead', payload: leadToRow(changed) }] : state._push,
       }
     }
 
-    case 'MARK_READ':
-      return { ...state, leads: state.leads.map(l => l.id === action.leadId ? { ...l, respondeu: false } : l) }
-
-    case 'RECEIVE_WHATSAPP': {
-      // ⭐ AUTO-ETIQUETAGEM (Seção 5) — ponto de entrada de toda mensagem.
-      // Em produção este bloco roda no webhook (n8n) antes do insert no Supabase.
-      const { texto, telefone, nome } = action
-      const parsed = parseIntroMessage(texto, state.products)
-
-      let affiliates = state.affiliates
-      let afiliadoId = null
-      let novoAfiliado = null
-      if (parsed) {
-        const found = affiliates.find(a => norm(a.nome) === norm(parsed.afiliadoNome))
-        if (found) {
-          afiliadoId = found.id
-        } else {
-          // Provisionamento automático do afiliado (Seção 5.2)
-          novoAfiliado = {
-            id: nextId('af'), nome: parsed.afiliadoNome, instagram: `@${slugify(parsed.afiliadoNome).replace(/-/g, '.')}`,
-            foto: null, status: 'ativo', percentualComissao: 15,
-            tagSlug: slugify(parsed.afiliadoNome), criadoEm: Date.now(),
-          }
-          affiliates = [...affiliates, novoAfiliado]
-          afiliadoId = novoAfiliado.id
-        }
-      }
-
-      // Deduplicação por telefone
-      const existing = state.leads.find(l => l.telefone.replace(/\D/g, '') === telefone.replace(/\D/g, ''))
-      let leads = state.leads
-      let leadId
-      if (existing) {
-        leadId = existing.id
-        leads = leads.map(l => l.id === leadId ? { ...l, respondeu: true, ultimaAtualizacao: Date.now() } : l)
-      } else {
-        leadId = nextId('ld')
-        leads = [...leads, {
-          id: leadId, nome: nome || `Lead ${telefone.slice(-4)}`, telefone,
-          afiliadoId, produtoInteresse: parsed?.produto || null,
-          etapa: 1, responsavelId: null, valorVenda: null, motivoPerda: null,
-          criadoEm: Date.now(), etapaDesde: Date.now(), ultimaAtualizacao: Date.now(),
-          respondeu: true, origemMensagem: texto,
-        }]
-      }
-      const msg = {
-        id: nextId('msg'), leadId, direcao: 'recebida', texto,
-        timestamp: Date.now(), remetente: nome || telefone,
-      }
-      return {
-        ...state, affiliates, leads,
-        messages: [...state.messages, msg],
-        lastAuto: { leadId, afiliadoId, parsed, novoAfiliado: !!novoAfiliado, existing: !!existing },
-      }
-    }
-
-    case 'IMPORT_CHAT': {
-      // Importa uma conversa REAL do WhatsApp (backfill ou polling).
-      // Dedup: lead por telefone, mensagem por id do Z-API.
-      const { phone, nome, msgs } = action // msgs já normalizadas (normalizeMsg)
-      const digits = String(phone).replace(/\D/g, '')
-      const existingIds = new Set(state.messages.map(m => m.id))
-      const fresh = msgs
-        .filter(m => !existingIds.has(m.id))
-        .sort((a, b) => a.timestamp - b.timestamp)
-
-      let lead = state.leads.find(l => l.telefone.replace(/\D/g, '') === digits)
-      if (!fresh.length && lead) return state
-
-      let affiliates = state.affiliates
-      let leads = state.leads
-      const lastTs = fresh.length ? fresh[fresh.length - 1].timestamp : Date.now()
-      const hasNewIncoming = fresh.some(m => m.direcao === 'recebida')
-
-      if (!lead) {
-        // Etiquetagem retroativa: procura o padrão na 1ª mensagem recebida
-        const firstIn = fresh.find(m => m.direcao === 'recebida')
-        const parsed = firstIn ? parseIntroMessage(firstIn.texto, state.products) : null
-        let afiliadoId = null
-        if (parsed) {
-          const found = affiliates.find(a => norm(a.nome) === norm(parsed.afiliadoNome))
-          if (found) afiliadoId = found.id
-          else {
-            const novo = {
-              id: nextId('af'), nome: parsed.afiliadoNome,
-              instagram: `@${slugify(parsed.afiliadoNome).replace(/-/g, '.')}`,
-              foto: null, status: 'ativo', percentualComissao: 15,
-              tagSlug: slugify(parsed.afiliadoNome), criadoEm: Date.now(),
-            }
-            affiliates = [...affiliates, novo]
-            afiliadoId = novo.id
-          }
-        }
-        lead = {
-          id: nextId('ld'), nome: nome || `Lead ${digits.slice(-4)}`, telefone: digits,
-          afiliadoId, produtoInteresse: parsed?.produto || null,
-          etapa: 1, responsavelId: null, valorVenda: null, motivoPerda: null,
-          criadoEm: fresh[0]?.timestamp || Date.now(), etapaDesde: Date.now(),
-          ultimaAtualizacao: lastTs, respondeu: hasNewIncoming,
-          origemMensagem: firstIn?.texto || '',
-        }
-        leads = [...leads, lead]
-      } else {
-        leads = leads.map(l => l.id === lead.id
-          ? { ...l, ultimaAtualizacao: Math.max(l.ultimaAtualizacao, lastTs), respondeu: l.respondeu || hasNewIncoming, nome: l.nome.startsWith('Lead ') && nome ? nome : l.nome }
-          : l)
-      }
-
-      return {
-        ...state, affiliates, leads,
-        messages: [...state.messages, ...fresh.map(m => ({ ...m, leadId: lead.id }))],
-      }
-    }
-
-    case 'CLEAR_DEMO_LEADS': {
-      // Remove os leads fictícios (ids ld-N do seed) mantendo os reais
-      const isDemo = id => /^ld-\d+$/.test(id)
-      const leads = state.leads.filter(l => !isDemo(l.id))
-      const keep = new Set(leads.map(l => l.id))
-      return {
-        ...state, leads,
-        messages: state.messages.filter(m => keep.has(m.leadId)),
-        sales: state.sales.filter(s => keep.has(s.leadId)),
-      }
+    case 'MARK_READ': {
+      let changed = null
+      const leads = state.leads.map(l => {
+        if (l.id !== action.leadId || !l.respondeu) return l
+        changed = { ...l, respondeu: false }
+        return changed
+      })
+      return { ...state, leads, _push: changed ? [...state._push, { kind: 'lead', payload: leadToRow(changed) }] : state._push }
     }
 
     case 'SAVE_AFFILIATE': {
       const a = action.affiliate
+      let saved
+      let affiliates
       if (a.id) {
-        return { ...state, affiliates: state.affiliates.map(x => x.id === a.id ? { ...x, ...a } : x) }
-      }
-      return {
-        ...state,
-        affiliates: [...state.affiliates, {
+        saved = { ...state.affiliates.find(x => x.id === a.id), ...a }
+        affiliates = state.affiliates.map(x => x.id === a.id ? saved : x)
+      } else {
+        saved = {
           ...a, id: nextId('af'), status: a.status || 'ativo',
           percentualComissao: a.percentualComissao ?? 15,
           tagSlug: slugify(a.nome), criadoEm: Date.now(),
-        }],
+        }
+        affiliates = [...state.affiliates, saved]
       }
+      return { ...state, affiliates, _push: [...state._push, { kind: 'affiliate', payload: affToRow(saved) }] }
     }
 
-    case 'SET_PRODUCTS':
-      return { ...state, products: action.products }
+    case 'SET_PRODUCTS': {
+      const s = { ...state, products: action.products }
+      return { ...s, _push: [...state._push, { kind: 'config', payload: configOf(s) }] }
+    }
 
     case 'SAVE_TEAM_MEMBER': {
       const m = action.member
-      if (m.id) return { ...state, team: state.team.map(x => x.id === m.id ? { ...x, ...m } : x) }
-      return { ...state, team: [...state.team, { ...m, id: nextId('u') }] }
+      const team = m.id ? state.team.map(x => x.id === m.id ? { ...x, ...m } : x) : [...state.team, { ...m, id: nextId('u') }]
+      const s = { ...state, team }
+      return { ...s, _push: [...state._push, { kind: 'config', payload: configOf(s) }] }
     }
 
-    case 'CLOSE_MONTH':
-      return { ...state, closings: { ...state.closings, [action.monthKey]: { status: 'pago', fechadoEm: Date.now() } } }
+    case 'CLOSE_MONTH': {
+      const s = { ...state, closings: { ...state.closings, [action.monthKey]: { status: 'pago', fechadoEm: Date.now() } } }
+      return { ...s, _push: [...state._push, { kind: 'config', payload: configOf(s) }] }
+    }
+
+    case 'PUSH_DONE':
+      return { ...state, _push: state._push.slice(action.count) }
 
     case 'WHATSAPP_STATUS':
       return { ...state, whatsapp: { ...state.whatsapp, ...action.patch } }
@@ -245,33 +175,47 @@ function reducer(state, action) {
     case 'DISMISS_TOAST':
       return { ...state, toasts: state.toasts.filter(t => t.id !== action.id) }
 
-    case 'RESET_DEMO': {
-      localStorage.removeItem(STORAGE_KEY)
-      return { ...buildDemoState(), user: state.user }
-    }
-
     default:
       return state
   }
 }
 
-function init() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) {
-      const s = JSON.parse(saved)
-      if (s && s.leads && s.affiliates) return { ...s, toasts: [] }
-    }
-  } catch { /* estado corrompido -> demo limpo */ }
-  return buildDemoState()
-}
-
 export function StoreProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, null, init)
+  const [state, dispatch] = useReducer(reducer, null, emptyState)
+  const flushing = useRef(false)
 
+  // Empurra mudanças locais para o banco central
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, toasts: [] })) } catch { /* quota */ }
-  }, [state])
+    if (!state._push.length || flushing.current || !state.user) return
+    flushing.current = true
+    const batch = state._push.slice()
+    ;(async () => {
+      for (const item of batch) {
+        try {
+          if (item.kind === 'lead') await saveLead(item.payload)
+          else if (item.kind === 'affiliate') await saveAffiliate(item.payload)
+          else if (item.kind === 'config') await saveConfig(item.payload)
+        } catch { /* tenta de novo no próximo ciclo */ }
+      }
+      dispatch({ type: 'PUSH_DONE', count: batch.length })
+      flushing.current = false
+    })()
+  }, [state._push, state.user])
+
+  // Carga inicial + poll do banco central (mantém tudo ao vivo)
+  useEffect(() => {
+    if (!state.user) return
+    let stop = false
+    const pull = async () => {
+      try {
+        const data = await getCrm()
+        if (!stop) dispatch({ type: 'SYNC_CRM', data })
+      } catch { /* sem internet — tenta no próximo ciclo */ }
+    }
+    pull()
+    const iv = setInterval(pull, 12000)
+    return () => { stop = true; clearInterval(iv) }
+  }, [state.user])
 
   return <StoreCtx.Provider value={{ state, dispatch }}>{children}</StoreCtx.Provider>
 }
@@ -290,6 +234,21 @@ export function leadsOf(state, afiliadoId) {
   return state.leads.filter(l => l.afiliadoId === afiliadoId)
 }
 
+// Vendas derivadas dos leads ganhos (não há tabela separada)
+export function salesOf(state, afiliadoId) {
+  return state.leads
+    .filter(l => l.etapa === 'ganho' && l.valorVenda && (!afiliadoId || l.afiliadoId === afiliadoId))
+    .map(l => {
+      const af = state.affiliates.find(a => a.id === l.afiliadoId)
+      const pct = af ? af.percentualComissao : 15
+      return {
+        id: 'vd-' + l.id, leadId: l.id, afiliadoId: l.afiliadoId,
+        valor: l.valorVenda, produto: l.produtoInteresse, data: l.etapaDesde,
+        comissaoCalculada: +(l.valorVenda * pct / 100).toFixed(2),
+      }
+    })
+}
+
 export function funnelCounts(leads) {
   const c = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, ganho: 0, perdido: 0 }
   leads.forEach(l => { c[l.etapa] = (c[l.etapa] || 0) + 1 })
@@ -298,7 +257,7 @@ export function funnelCounts(leads) {
 
 export function affiliateMetrics(state, afiliadoId) {
   const leads = leadsOf(state, afiliadoId)
-  const sales = state.sales.filter(s => s.afiliadoId === afiliadoId)
+  const sales = salesOf(state, afiliadoId)
   const ganhos = leads.filter(l => l.etapa === 'ganho').length
   const fechados = ganhos + leads.filter(l => l.etapa === 'perdido').length
   return {

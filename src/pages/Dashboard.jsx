@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
   BarChart, Bar, Cell,
 } from 'recharts'
-import { useStore, STAGES, funnelCounts, affiliateMetrics } from '../store.jsx'
+import { useStore, STAGES, funnelCounts, affiliateMetrics, salesOf } from '../store.jsx'
 import { KPI, FunnelBars, Chip } from '../components/ui.jsx'
 import { money, n, pct } from '../lib/format.js'
 
@@ -25,7 +25,7 @@ export default function Dashboard({ setRoute, openAffiliate }) {
 
   const cutoff = period ? Date.now() - period * 86400000 : 0
   const leads = state.leads.filter(l => l.criadoEm >= cutoff)
-  const sales = state.sales.filter(s => s.data >= cutoff)
+  const sales = salesOf(state).filter(s => s.data >= cutoff)
 
   const counts = funnelCounts(leads)
   const receita = sales.reduce((s, v) => s + v.valor, 0)
@@ -48,7 +48,7 @@ export default function Dashboard({ setRoute, openAffiliate }) {
       out.push({
         dia: d0.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
         leads: state.leads.filter(l => l.criadoEm >= d0.getTime() && l.criadoEm < d1).length,
-        vendas: state.sales.filter(s => s.data >= d0.getTime() && s.data < d1).length,
+        vendas: salesOf(state).filter(s => s.data >= d0.getTime() && s.data < d1).length,
       })
     }
     return out

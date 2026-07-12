@@ -24,7 +24,8 @@ export default function Conversas({ selectedLeadId, setSelectedLeadId }) {
   }, [state, search, afFilter])
 
   const lead = state.leads.find(l => l.id === selectedLeadId) || conversations[0]
-  const msgs = state.messages.filter(m => m.leadId === lead?.id).sort((a, b) => a.timestamp - b.timestamp)
+  const leadDigits = lead ? lead.telefone.replace(/\D/g, '') : ''
+  const msgs = state.messages.filter(m => lead && String(m.phone || '').replace(/\D/g, '') === leadDigits).sort((a, b) => a.timestamp - b.timestamp)
   const af = lead && state.affiliates.find(a => a.id === lead.afiliadoId)
 
   useEffect(() => {
@@ -75,7 +76,8 @@ export default function Conversas({ selectedLeadId, setSelectedLeadId }) {
           </select>
           {conversations.length === 0 && <Empty icon="💬" title="Nenhuma conversa" sub="Ajuste a busca ou os filtros" />}
           {conversations.map(l => {
-            const last = state.messages.filter(m => m.leadId === l.id).slice(-1)[0]
+            const ld = l.telefone.replace(/\D/g, '')
+            const last = state.messages.filter(m => String(m.phone || '').replace(/\D/g, '') === ld).slice(-1)[0]
             const lAf = state.affiliates.find(a => a.id === l.afiliadoId)
             return (
               <div key={l.id} className={`inbox-item ${lead?.id === l.id ? 'active' : ''}`}

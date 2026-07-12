@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react'
-import { useStore, toast } from '../store.jsx'
+import { useStore, toast, salesOf } from '../store.jsx'
 import { Chip, Empty } from '../components/ui.jsx'
 import { money, n, monthKey, monthLabel, fmtDate } from '../lib/format.js'
 
 function monthOptions(state) {
-  const keys = new Set(state.sales.map(s => monthKey(s.data)))
+  const keys = new Set(salesOf(state).map(s => monthKey(s.data)))
   keys.add(monthKey(Date.now()))
   return [...keys].sort().reverse()
 }
@@ -20,7 +20,7 @@ export default function Fechamento({ isPortal, afiliadoId }) {
   const [month, setMonth] = useState(months[0])
 
   const closing = state.closings[month]
-  const monthSales = state.sales.filter(s => monthKey(s.data) === month &&
+  const monthSales = salesOf(state).filter(s => monthKey(s.data) === month &&
     (!isPortal || s.afiliadoId === afiliadoId))
 
   const byAffiliate = useMemo(() => {

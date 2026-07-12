@@ -26,11 +26,10 @@ export default function App() {
     if (user) { setRoute(HOME_BY_ROLE[user.papel]); setAffiliateId(null) }
   }, [user?.id]) // eslint-disable-line
 
-  // ⏱ TEMPO REAL: o webhook do Z-API grava cada mensagem recebida no
-  // Supabase; aqui o CRM busca as novas a cada 15 segundos e as joga
-  // no funil (etiquetagem automática acontece no IMPORT_CHAT).
+  // ⏱ TEMPO REAL das CONVERSAS: os leads já vêm do banco central (poll no
+  // store); aqui só buscamos o TEXTO das mensagens para a aba Conversas.
+  // Afiliado não acessa (privacidade dos leads dos outros).
   useEffect(() => {
-    // Afiliado não puxa mensagens do servidor (privacidade dos leads dos outros)
     if (!user || user.papel === 'afiliado') return
     let stop = false
     const tick = async () => {
@@ -38,15 +37,7 @@ export default function App() {
         const lastId = Number(localStorage.getItem('aeternum-crm-lastdbid') || 0)
         const rows = await supaNewMessages(lastId)
         if (stop || !rows.length) return
-        const byPhone = {}
-        rows.forEach(r => { (byPhone[r.phone] = byPhone[r.phone] || []).push(r) })
-        for (const [phone, list] of Object.entries(byPhone)) {
-          dispatch({
-            type: 'IMPORT_CHAT', phone,
-            nome: list.find(r => r.sender_name)?.sender_name || '',
-            msgs: list.map(normalizeDbMsg).filter(m => m.texto),
-          })
-        }
+        dispatch({ type: 'MERGE_MESSAGES', messages: rows.map(normalizeDbMsg).filter(m => m.texto) })
         localStorage.setItem('aeternum-crm-lastdbid', String(rows[rows.length - 1].id))
       } catch { /* sem internet — tenta no próximo ciclo */ }
     }
