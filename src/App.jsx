@@ -32,6 +32,12 @@ export default function App() {
   useEffect(() => {
     if (!user || user.papel === 'afiliado') return
     let stop = false
+    // Reset único do cursor: garante que todo aparelho recarregue as
+    // conversas recentes do zero (corrige mensagens enviadas que ficaram fora).
+    if (localStorage.getItem('aeternum-crm-msgreset') !== 'v2') {
+      localStorage.removeItem('aeternum-crm-lastdbid')
+      localStorage.setItem('aeternum-crm-msgreset', 'v2')
+    }
     const tick = async () => {
       try {
         const lastId = Number(localStorage.getItem('aeternum-crm-lastdbid') || 0)
